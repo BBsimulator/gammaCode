@@ -1,0 +1,143 @@
+function [optionPrice]=BS(mu,sigma,t,p, k, r, dir)
+
+% 1=cal, -1=put, 0=straddle
+d1=(log(p/k) + t*(r+ 0.5*sigma^2))/(sigma*sqrt(t));
+d2=d1-sigma*sqrt(t);
+
+callPrice=p* normcdf(d1) - k*exp(-r*t)*normcdf(d2);
+putPrice=-p* normcdf(-d1) + k*exp(-r*t)*normcdf(-d2);
+
+optionPrice= (dir==1)*callPrice + (dir==-1)*putPrice +  (dir==0)*(callPrice+ putPrice);
+end
+
+function [delta]=calcDelta(mu,sigma,t,p, k, r)
+
+d1=(log(p/k) + t*(r+ (0.5*sigma^2)))/(sigma*sqrt(t));
+delta=normcdf(d1);
+end
+
+function [gamma]=calcGamma(mu,sigma,t,p, k, r)
+
+d1=(log(p/k) + t*(r+ (0.5*sigma^2)))/(sigma*sqrt(t));
+gamma=normpdf(d1)/(p*sigma*sqrt(t));
+end
+
+function [OB,bestBid,bestOffer, aantalDecays]=decay(OB,transActionLedger,decayRate, init)
+tickSize=init(1);
+if max(OB(:,2))<=0 %als er geen biedingen zijn
+ bestBid=   transActionLedger(end,1)-2*tickSize;
+else
+    
+ bestBid= OB(find(OB(:,2) >0,1,  'last'),1);
+end
+
+if min(OB(:,2))>=0 %als er geen latingen zijn
+ bestOffer=   transActionLedger(end,1)+2*tickSize;
+else
+bestOffer=OB(find(OB(:,2)<0,1,  'first'),1);
+end
+
+mid=(bestBid+bestOffer)/2;
+OB_test=OB(:,2)- OB(:,2).*decayRate.*max((OB(:,1)-mid).^2,1);
+aantalDecays=sum(abs(OB(:,2)))- sum(abs(OB_test));
+OB(:,2)=OB_test;
+%plot([OB(:,2),OB_test])
+end
+
+function [OB]=MMremove(OB,MM,strategy, transActionLedger, mmInventory,midPrice, i,j, init)
+% strategies:
+% 1. Unlimited inventory market maker
+% 2. Inventory constrained market maker
+% 3. Delta neutral-gamma player delta constrained
+
+
+tickSize=init(1);
+dim=init(4);
+maxPrice=init(9);
+a=1/midPrice(i-1,j); % deBug
+mmDistance=strategy(2);
+mmSize=strategy(3);
+
+%LET OP: ook hier moeten we zoeken naar (i-1) voor de locatie van de market
+%maker
+
+bidLocation=round((midPrice(i-1,j)-tickSize*mmDistance)/tickSize+1,0);
+offerLocation=round((midPrice(i-1,j)+tickSize*mmDistance)/tickSize+1,0);
+
+mmBid=MM(round((midPrice(i-1,j)-tickSize*mmDistance)/tickSize+1,0),1);
+mmOffer=MM(round((midPrice(i-1,j)+tickSize*mmDistance)/tickSize+1,0),1);
+
+transacties=transActionLedger(transActionLedger(:,3)==i,:);
+
+verkoopvolume_op_bid=sum(transacties(transacties(:,1)==mmBid,2));
+koopvolume_op_offer=sum(transacties(transacties(:,1)==mmOffer,2));
+
+
+
+OB_BID=OB(bidLocation,2);
+OB_OFFER=-OB(offerLocation,2);
+
+%op basis van time priority staat de MM achteraan
+mmOver_bid=mmSize-min(mmSize-min(mmSize,OB_BID),-verkoopvolume_op_bid);
+mmOver_offer=mmSize-min(mmSize-min(mmSize,OB_OFFER),koopvolume_op_offer);
+
+%if (OB(offerLocation,2)+mmOver_offer)>0 || (OB_BID-mmOver_bid)<0 
+%   5+3 
+%end
+
+if OB_BID>0 %als de verkooporder geen residual lating is geworden (want dan is de MM volledig gehit)
+OB(bidLocation,2)=OB_BID-mmOver_bid ;
+end
+if OB_OFFER>0 %komt ie hier ooit wel?
+OB(offerLocation,2)=-OB_OFFER+mmOver_offer ;
+end
+
+
+end
+
+function [MM]=MMplace(OB, strategy, mmInventory,midPrice, i,j,init)
+% strategies:
+% 1. Unlimited inventory market maker
+% 2. Inventory constrained market maker
+% 3. Delta neutral-gamma player delta constrained 
+% strategies:
+% 1. Unlimited inventory market maker
+% 2. Inventory constrained market maker
+% 3. Delta neutral-gamma player delta constrained 
+
+tickSize=init(1);
+dim=init(4);
+maxPrice=init(9);
+a=1/midPrice(i,j); % deBug
+mmDistance=strategy(2);
+mmSize=strategy(3);
+if strategy(1)==1
+
+    % adds new MM orders....
+    MM=[[0:tickSize:maxPrice]',zeros(maxPrice/tickSize+1,dim)];
+    %LET OP: Hij zet m om de (i-1) midprice, want de nieuwe midprice is nog
+    %niet bekend hier
+    MM(round((midPrice(i-1,j)-tickSize*mmDistance)/tickSize+1,0),j+1)=mmSize;
+    MM(round((midPrice(i-1,j)+tickSize*mmDistance)/tickSize+1,0),j+1)=-mmSize;
+
+end
+
+%check for order book continuity
+if max(OB(:,1))>5
+3+5
+end
+
+end
+
+
+function [r, ac]=returnMaker(x)
+
+[n, m]=size(x);
+
+r=[zeros(1,m);log(x(2:n,:))-log(x(1:n-1,:))];
+ac=zeros(1,m);
+for i=1:m
+ac(i)=corr(r(2:n,i),r(1:n-1,i));
+end
+
+
